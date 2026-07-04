@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雲端智慧型即時盤點系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Sortable.js (拖曳排序核心) -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <style>
+        .scrollbar-none {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 自訂漸顯動畫 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fadeIn {
+            animation: fadeIn 0.25s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+<!-- --- Toast 訊息通知容器 --- -->
+<div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+<!-- --- 客製化 Confirm / Alert 彈出確認視窗 (代替 browser confirm) --- -->
+<div id="custom-confirm-modal"
+    class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div
+        class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fadeIn">
+        <div class="p-5 border-b border-slate-800 bg-slate-950">
+            <h3 id="confirm-title" class="font-bold text-lg text-white flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400"></i>
+                系統提示
+            </h3>
+        </div>
+        <div class="p-6">
+            <p id="confirm-message" class="text-sm text-slate-300 leading-relaxed"></p>
+        </div>
+        <div class="p-5 border-t border-slate-800 flex justify-end gap-3 bg-slate-950/50">
+            <button id="confirm-btn-cancel"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-all">
+                取消
+            </button>
+            <button id="confirm-btn-ok"
+                class="px-5 py-2 bg-rose-500 hover:bg-rose-400 text-white font-extrabold rounded-xl text-sm transition-all shadow-lg">
+                確定
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- --- 頁首 --- -->
+<header class="bg-slate-950 border-b border-slate-800 sticky top-0 z-40 shadow-md">
+    <div
+        class="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex flex-col lg:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-gradient-to-tr from-emerald-600 to-teal-500 rounded-xl shadow-lg">
+                <i data-lucide="database" class="w-6 h-6 text-white"></i>
+            </div>
+            <div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <h1 class="text-xl font-bold tracking-tight text-white">
+                        雲端智慧型即時盤點系統
+                    </h1>
+                    <!-- 實時雲端連線狀態燈 -->
+                    <div id="sync-status-badge"
+                        class="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                        <span id="sync-status-text">連線中...</span>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400 font-normal">多手機即時同步 · 自訂品項排序 · 送出即自動歸零</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+            <!-- 盤點人員設定區 -->
+            <div
+                class="bg-slate-900 border border-slate-800 rounded-xl p-1.5 flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <div class="flex items-center gap-1.5 px-2 text-slate-400 text-sm">
+                    <i data-lucide="user" class="w-4 h-4 text-emerald-400"></i>
+                    <span class="hidden sm:inline font-medium">盤點人:</span>
+                </div>
+
+                <select id="operator-select"
+                    class="bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 text-sm rounded-lg px-2.5 py-1 text-emerald-400 font-semibold focus:outline-none">
+                    <option value="阿美">阿美</option>
+                    <option value="custom">其他 (自行輸入)</option>
+                </select>
+
+                <input id="custom-operator-input" type="text" placeholder="請輸入姓名"
+                    class="hidden bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 text-sm rounded-lg px-2.5 py-1 text-emerald-400 font-medium w-full sm:w-28 placeholder:text-slate-700 mercantile-theme focus:outline-none placeholder:italic animate-fadeIn" />
+            </div>
+
+            <!-- 新增品項按鈕 -->
+            <button id="btn-open-add-modal"
+                class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-extrabold px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-500/10">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                <span>新增品項</span>
+            </button>
+
+            <!-- 雲端試算表設定 -->
+            <button id="btn-toggle-settings"
+                class="p-2 rounded-xl border bg-slate-900 border-slate-800 text-slate-400 hover:text-white transition-all"
+                title="Google試算表串接設定">
+                <i data-lucide="settings" class="w-5 h-5"></i>
+            </button>
+
+            <button onclick="window.location.reload()"
+                class="p-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white rounded-xl transition-all"
+                title="重新整理雲端資料">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- --- 手機專用極簡分頁切換列 (只在手機/平板 lg:hidden 顯示) --- -->
+<div id="mobile-tab-bar"
+    class="flex lg:hidden border-b border-slate-800 bg-slate-950/95 backdrop-blur-md sticky top-[110px] sm:top-[57px] z-30 justify-around text-xs font-bold shadow-lg">
+    <button id="tab-btn-list"
+        class="flex-1 py-3 text-center border-b-2 border-emerald-500 text-emerald-400 flex items-center justify-center gap-1 transition-all">
+        <i data-lucide="list-todo" class="w-4 h-4"></i>盤點目錄
+    </button>
+    <button id="tab-btn-totals"
+        class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 flex items-center justify-center gap-1 transition-all">
+        <i data-lucide="trending-up" class="w-4 h-4"></i>即時彙總
+    </button>
+    <button id="tab-btn-logs"
+        class="flex-1 py-3 text-center border-b-2 border-transparent text-slate-400 flex items-center justify-center gap-1 transition-all">
+        <i data-lucide="database" class="w-4 h-4"></i>歷史日誌
+    </button>
+</div>
+
+<!-- --- Google Sheets 串接設定面板 --- -->
+<section id="settings-panel" class="bg-slate-950 border-b border-slate-800 py-6 px-4 transition-all hidden">
+    <div class="max-w-4xl mx-auto bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-inner animate-fadeIn">
+        <div class="flex items-start gap-4">
+            <div class="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+                <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                    設定 Google 試算表自動同步
+                    <span
+                        class="text-xs bg-emerald-400/10 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/20">
+                        雲端同步串接
+                    </span>
+                </h3>
+                <p class="text-sm text-slate-400 mb-4">
+                    設定後，系統會<strong>自動儲存記憶</strong>在此裝置，下次開啟時免再重複輸入！
+                </p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                            步驟 1: 複製 Apps Script 程式碼到試算表
+                        </label>
+                        <button id="btn-copy-gas"
+                            class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-medium inline-flex items-center gap-2 transition-all">
+                            <i data-lucide="layers" class="w-4 h-4 text-emerald-400"></i>
+                            複製 Google Apps Script 腳本
+                        </button>
+                        <span class="text-xs text-slate-500 ml-3 block sm:inline mt-1 sm:mt-0">
+                            (貼入 Google 試算表擴充功能中的 Apps Script，部署為網頁應用程式並設定「任何人」有權限)
+                        </span>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                            步驟 2: 貼上已部署的「網頁應用程式 URL」
+                        </label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <div class="relative flex-1">
+                                <input id="gas-url-input" type="url"
+                                    placeholder="https://script.google.com/macros/s/.../exec"
+                                    class="w-full bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 rounded-xl text-sm pl-4 pr-24 py-2.5 text-slate-200 placeholder:text-slate-700 focus:outline-none" />
+                                <!-- 已自動記憶標章 -->
+                                <span id="save-status-badge"
+                                    class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20 hidden">
+                                    已自動記憶
+                                </span>
+                            </div>
+                            <div class="flex gap-2 w-full sm:w-auto">
+                                <button id="btn-test-gas" type="button"
+                                    class="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-extrabold shadow-md flex items-center justify-center gap-1.5 transition-all">
+                                    <i data-lucide="send" class="w-4 h-4"></i>
+                                    測試連線
+                                </button>
+                                <button id="btn-clear-gas"
+                                    class="px-3 bg-rose-950/50 hover:bg-rose-900 border border-rose-800 text-rose-300 rounded-xl text-xs">
+                                    清除
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-2 flex items-center gap-1.5">
+                            <i data-lucide="info" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            💡 系統會自動記憶此網址在您的手機中，<strong>下次打開免再貼一次</strong>！只需在此點擊「測試連線」確認是否正常寫入即可。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- --- 手動新增商品彈出視窗 (Modal) --- -->
+<div id="add-item-modal"
+    class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div
+        class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden transform scale-100 transition-all animate-fadeIn">
+        <div class="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+            <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                <i data-lucide="plus-circle" class="w-5 h-5 text-emerald-400"></i>
+                新增自訂商品品項 (全手機同步)
+            </h3>
+            <button id="btn-close-add-modal" class="p-1.5 rounded-lg bg-slate-900 text-slate-400 hover:text-white">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <form id="add-item-form" class="p-6 space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
+                    品項名稱 <span class="text-rose-400">*</span>
+                </label>
+                <input id="new-item-name" type="text" required placeholder="例如: 2斤耐拉背心袋"
+                    class="w-full bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 rounded-xl text-sm px-4 py-2.5 text-slate-100 placeholder:text-slate-700 focus:outline-none" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
+                        凌誠編碼 (非必填)
+                    </label>
+                    <input id="new-item-code" type="text" placeholder="預設 93050399"
+                        class="w-full bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 rounded-xl text-sm px-4 py-2.5 text-slate-100 placeholder:text-slate-700 focus:outline-none" />
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
+                        單位 (非必填)
+                    </label>
+                    <input id="new-item-unit" type="text" placeholder="個 / 卷 / 件 / 袋"
+                        class="w-full bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 rounded-xl text-sm px-4 py-2.5 text-slate-100 placeholder:text-slate-700 focus:outline-none" />
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">
+                    選擇品項分類
+                </label>
+                <select id="new-item-category"
+                    class="w-full bg-slate-950 border border-slate-800 focus:ring-1 focus:ring-emerald-500 rounded-xl text-sm px-4 py-2.5 text-slate-100 focus:outline-none">
+                    <option value="貼紙">貼紙</option>
+                    <option value="碳帶">碳帶</option>
+                    <option value="背心袋">背心袋</option>
+                    <option value="OPP">OPP</option>
+                    <option value="PE">PE</option>
+                    <option value="文具類">文具類</option>
+                    <option value="其他">其他</option>
+                    <option value="custom_cat">+ 自訂新類別標籤</option>
+                </select>
+            </div>
+
+            <div id="custom-category-group"
+                class="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 hidden">
+                <label class="block text-[11px] font-bold text-emerald-400 mb-1.5">
+                    請輸入全新類別名稱
+                </label>
+                <input id="new-item-custom-cat" type="text" placeholder="例如: 清潔用品"
+                    class="w-full bg-slate-950 border border-emerald-500/40 focus:ring-1 focus:ring-emerald-500 rounded-lg text-xs px-3 py-2 text-slate-100 focus:outline-none" />
+            </div>
+
+            <p class="text-[11px] text-slate-500 italic leading-snug">
+                * 註：新增成功後，所有連接此盤點系統的手機/平板都會即時同步更新並出現在選取標籤目錄下，方便跨裝置共同點數。
+            </p>
+
+            <div class="pt-4 border-t border-slate-800 flex justify-end gap-3">
+                <button type="button" id="btn-cancel-add"
+                    class="px-4 py-2 bg-slate-950 hover:bg-slate-800 text-slate-400 rounded-xl text-sm font-medium transition-all">
+                    取消
+                </button>
+                <button type="submit"
+                    class="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl text-sm transition-all shadow-lg shadow-emerald-500/10">
+                    同步新增至雲端
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- --- 主體區塊 --- -->
+<main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+
+    <!-- 功能特色亮點看板 (手機版隱藏，電腦版顯示以維持極簡) -->
+    <div class="hidden sm:grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div
+            class="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-4 shadow-sm animate-fadeIn">
+            <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+                <i data-lucide="grip-vertical" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400">支援拖曳與長壓</p>
+                <h4 class="text-md font-bold text-white mt-0.5">自訂品項順序</h4>
+                <p class="text-[11px] text-slate-500">點按左側把手輕鬆排序，本機智慧記憶</p>
+            </div>
+        </div>
+
+        <div
+            class="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-4 shadow-sm animate-fadeIn">
+            <div class="p-3 rounded-xl bg-teal-500/10 text-teal-400">
+                <i data-lucide="check" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400">智慧歸零機制</p>
+                <h4 class="text-md font-bold text-white mt-0.5">送出自動重設</h4>
+                <p class="text-[11px] text-slate-500">送出盤點完該項數字會自動歸 0</p>
+            </div>
+        </div>
+
+        <div
+            class="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-4 shadow-sm animate-fadeIn">
+            <div class="p-3 rounded-xl bg-indigo-500/10 text-indigo-400">
+                <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400">防中文亂碼一鍵匯出</p>
+                <h4 class="text-md font-bold text-white mt-0.5">即時統計與匯出</h4>
+                <p class="text-[11px] text-slate-500">自動加總累計多部裝置上傳的數據並支援 Excel</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 雙欄面版 layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+        <!-- ===================== 左側：商品盤點與數值微調 (佔7格) ===================== -->
+        <div id="col-left" class="lg:col-span-7 space-y-6">
+            <div class="bg-slate-950 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
+
+                <!-- 控制區：搜尋與類別篩選 -->
+                <div class="space-y-4 mb-6">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <i data-lucide="layers" class="w-5 h-5 text-emerald-400"></i>
+                            商品盤點目錄
+                        </h2>
+                        <div class="text-xs text-slate-400 flex items-center gap-1">
+                            <span class="hidden sm:inline">💡 按住把手拖曳可更改排序 |</span>
+                            目前篩選出 <span id="filtered-items-count"
+                                class="text-emerald-400 font-bold text-sm">0</span> 筆品項
+                        </div>
+                    </div>
+
+                    <!-- 搜尋 -->
+                    <div class="relative">
+                        <i data-lucide="search"
+                            class="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                        <input id="search-input" type="text" placeholder="搜尋品項名稱、編碼或規格..."
+                            class="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-200 placeholder:text-slate-600 transition-all focus:outline-none" />
+                    </div>
+
+                    <!-- 水平捲動分類按鈕區 -->
+                    <div id="category-tabs" class="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none"></div>
+                </div>
+
+                <!-- 品項清單容器 -->
+                <div id="items-list-container" class="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                    <!-- 動態渲染 -->
+                </div>
+
+                <!-- 批次送出工具列 -->
+                <div
+                    class="mt-6 pt-5 border-t border-slate-800 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                    <div class="text-xs text-slate-400 text-center sm:text-left">
+                        <span>批次送出機制：</span>
+                        您可以在此頁面一次輸入多筆數量後，一鍵批次送出！
+                    </div>
+                    <button id="btn-submit-batch"
+                        class="w-full sm:w-auto px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        批次送出所有填寫項目 (送出後歸零)
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ===================== 右側：雲端彙整即時看板 (佔5格) ===================== -->
+        <div id="col-right" class="lg:col-span-5 space-y-6">
+
+            <!-- 1. 即時累計加總看板 -->
+            <div id="card-totals" class="bg-slate-950 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-md font-bold text-white flex items-center gap-2">
+                        <i data-lucide="trending-up" class="w-5 h-5 text-emerald-400"></i>
+                        雲端累計即時總表
+                    </h3>
+                    <button id="btn-export-summary"
+                        class="text-xs text-emerald-400 hover:text-emerald-300 font-bold inline-flex items-center gap-1.5 disabled:opacity-50">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        匯出 Excel
+                    </button>
+                </div>
+
+                <p class="text-xs text-slate-400 mb-4 leading-relaxed">
+                    所有人透過手機上傳的盤點記錄會自動依商品<strong>合併加總</strong>。適合多人在不同倉庫同步點數。
+                </p>
+
+                <!-- 累計看板列表 -->
+                <div id="totals-container" class="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                    <!-- 動態數據 -->
+                </div>
+            </div>
+
+            <!-- 2. 最新動態日誌 -->
+            <div id="card-logs" class="bg-slate-950 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-md font-bold text-white flex items-center gap-2">
+                        <i data-lucide="database" class="w-5 h-5 text-emerald-400"></i>
+                        歷史盤點日誌紀錄
+                    </h3>
+                    <button id="btn-export-logs"
+                        class="text-xs text-teal-400 hover:text-teal-300 font-bold inline-flex items-center gap-1.5 disabled:opacity-50">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        匯出細目
+                    </button>
+                </div>
+
+                <div class="flex justify-between items-center mb-3">
+                    <span id="log-status-text" class="text-xs text-slate-500">正在讀取...</span>
+                    <button id="btn-clear-all"
+                        class="text-[10px] text-rose-400 hover:text-rose-300 flex items-center gap-1">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                        清除歷史紀錄
+                    </button>
+                </div>
+
+                <!-- 歷史日誌日誌列表 -->
+                <div id="logs-container" class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    <!-- 動態數據 -->
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+</main>
+
+<!-- --- 手機底部快捷人員指示條 (iOS/Android 友善) --- -->
+<div
+    class="fixed bottom-0 left-0 right-0 bg-slate-950 border-t border-slate-800 px-4 py-3 text-center sm:hidden z-30 shadow-2xl flex justify-between items-center">
+    <div class="flex items-center gap-2">
+        <i data-lucide="smartphone" class="w-4 h-4 text-emerald-400"></i>
+        <span class="text-xs text-slate-300 font-medium">當前盤點員: <strong id="mobile-operator-indicator"
+                class="text-emerald-400">阿美</strong></span>
+    </div>
+    <button id="btn-mobile-submit"
+        class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold px-4 py-1.5 rounded-lg text-xs transition-all shadow-md">
+        批次送出已填寫
+    </button>
+</div>
+
+<!-- Firebase SDK 模組與自訂盤點逻辑 -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- 預設商品清單數據 (單位均完美對齊 Excel 請請購明細標準) ---
+    const PRESET_ITEMS = [
+        { id: "S01", code: "93050399", category: "貼紙", name: "標籤貼紙80×63mm/1500張(A款)-理用", unit: "捲" },
+        { id: "S02", code: "93050399", category: "貼紙", name: "標籤貼紙35×25mm/3500張理用", unit: "捲" },
+        { id: "S03", code: "93050399", category: "貼紙", name: "公板貼(一般)", unit: "捲" },
+        { id: "S04", code: "93050399", category: "貼紙", name: "苔藍貼(可擦拭)", unit: "捲" },
+        { id: "R01", code: "93050399", category: "碳帶", name: "10M碳帶", unit: "捲" },
+        { id: "R02", code: "93050399", category: "碳帶", name: "8M碳帶", unit: "捲" },
+        { id: "R03", code: "93050399", category: "碳帶", name: "4M碳帶", unit: "捲" },
+        { id: "R04", code: "93120201", category: "碳帶", name: "EPSON LQ-690碳帶", unit: "捲" },
+        { id: "V01", code: "93050399", category: "背心袋", name: "1斤背心袋", unit: "袋" },
+        { id: "V02", code: "93050399", category: "背心袋", name: "3斤背心袋", unit: "袋" },
+        { id: "V03", code: "93050399", category: "背心袋", name: "5斤背心袋", unit: "袋" },
+        { id: "P01", code: "93050399", category: "OPP", name: "OPP-1斤透明袋", unit: "件" },
+        { id: "P02", code: "93050399", category: "OPP", name: "OPP-2斤透明袋", unit: "件" },
+        { id: "P03", code: "93050399", category: "OPP", name: "OPP-3斤透明袋", unit: "件" },
+        { id: "P04", code: "Z05045", category: "OPP", name: "青蔥袋膜", unit: "捲" },
+        { id: "P05", code: "Z03014", category: "OPP", name: "菇蔬菜公版袋", unit: "件" },
+        { id: "E01", code: "93050399", category: "PE", name: "PE-1斤透明袋(蒜泥用)", unit: "袋" },
+        { id: "E02", code: "93050399", category: "PE", name: "PE-3斤透明袋(生菜用)", unit: "袋" },
+        { id: "E03", code: "93050399", category: "PE", name: "PE-5斤透明袋", unit: "袋" },
+        { id: "E04", code: "93050399", category: "PE", name: "大蔥/山藥專用袋", unit: "袋" },
+        { id: "E05", code: "93050399", category: "PE", name: "銀耳袋", unit: "袋" },
+        { id: "E06", code: "93050399", category: "PE", name: "日燦袋", unit: "袋" },
+        { id: "E07", code: "93050399", category: "PE", name: "杏鮑菇袋(裝大5用)", unit: "袋" },
+        { id: "E08", code: "93050399", category: "PE", name: "香菇袋", unit: "袋" },
+        { id: "E09", code: "93050399", category: "PE", name: "苔籃袋", unit: "袋" },
+        { id: "E10", code: "93050399", category: "PE", name: "洞洞袋", unit: "袋" },
+        { id: "W01", code: "93129999", category: "文具類", name: "透明膠帶(寬)", unit: "件" },
+        { id: "W02", code: "93129999", category: "文具類", name: "紅色膠帶", unit: "件" },
+        { id: "W03", code: "93129999", category: "文具類", name: "蔬果膠帶", unit: "捲" },
+        { id: "W04", code: "93129999", category: "文具類", name: "白板筆", unit: "支" },
+        { id: "W05", code: "93129999", category: "文具類", name: "原子筆", unit: "支" },
+        { id: "W06", code: "93129999", category: "文具類", name: "雄獅白板筆230", unit: "支" },
+        { id: "W07", code: "93129999", category: "文具類", name: "雄獅230R白板筆補充液", unit: "罐" },
+        { id: "W08", code: "93129999", category: "文具類", name: "束口機膠帶-紅色", unit: "捲" },
+        { id: "C01", code: "Z06008", category: "其他", name: "物流箱", unit: "個" },
+        { id: "C02", code: "Z02011", category: "其他", name: "T26 黑盒", unit: "個" }
+    ];
+
+    // --- 全域變數狀態 ---
+    let firebaseUser = null;
+    let isFirebaseConnected = false;
+    let operatorName = localStorage.getItem('inventory_operator') || '阿美';
+    let presetSelection = "阿美";
+    if (operatorName !== '阿美') presetSelection = 'custom';
+
+    let localCounts = {}; // 商品編號臨時數量
+    let searchQuery = '';
+    let selectedCategory = '全部';
+
+    let cloudLogs = [];
+    let customItems = [];
+    let globalItemOrder = []; // 全域排序 ID 清單
+    let gasUrl = localStorage.getItem('inventory_gas_url') || '';
+
+    // 手機版當前 active 的分頁狀態 (簡化介面專用：'list', 'totals', 'logs')
+    let activeMobileTab = 'list';
+    let sortableInstance = null; // Sortable 實體紀錄
+
+    // --- 1. Firebase 載入防爆與安全初始化 ---
+    const firebaseConfig = typeof __firebase_config !== 'undefined'
+        ? JSON.parse(__firebase_config)
+        : {
+            apiKey: "",
+            authDomain: "default-app.firebaseapp.com",
+            projectId: "default-app",
+            storageBucket: "default-app.appspot.com",
+            messagingSenderId: "123456",
+            appId: "1:123456:web:123"
+        };
+
+    let app, auth, db;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-app-002';
+
+    try {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+    } catch (e) {
+        console.warn("Firebase Initial Fail, switching to Local Mode.", e);
+    }
+
+    // 更新頂部雲端指示器狀態
+    const updateSyncStatus = (status) => {
+        const badge = document.getElementById('sync-status-badge');
+        const text = document.getElementById('sync-status-text');
+        if (status === 'connected') {
+            badge.className = "px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1";
+            text.innerText = "雲端同步中";
+            isFirebaseConnected = true;
+        } else if (status === 'offline') {
+            badge.className = "px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1";
+            text.innerText = "本地離線模式";
+            isFirebaseConnected = false;
+        }
+    };
+
+    // --- 2. 歷史與累計紀錄之「本機瞬時快取」讀寫邏輯 (Optimistic UI 核心) ---
+    const loadLocalCache = () => {
+        try {
+            // 載入本地盤點日誌快取
+            const cachedLogs = localStorage.getItem('cached_inventory_logs');
+            if (cachedLogs) {
+                cloudLogs = JSON.parse(cachedLogs);
+            }
+            // 載入本地自訂商品快取
+            const cachedCustom = localStorage.getItem('cached_custom_items');
+            if (cachedCustom) {
+                customItems = JSON.parse(cachedCustom);
+            }
+            // 載入全域排序清單
+            const cachedOrder = localStorage.getItem('inventory_item_order');
+            if (cachedOrder) {
+                globalItemOrder = JSON.parse(cachedOrder);
+            } else {
+                // 若無紀錄則初始化預設順序
+                globalItemOrder = allItemsList().map(i => i.id);
+                localStorage.setItem('inventory_item_order', JSON.stringify(globalItemOrder));
+            }
+        } catch (e) {
+            console.error("Failed to load local cache: ", e);
+        }
+    };
+
+    const saveLocalLogsCache = () => {
+        try {
+            localStorage.setItem('cached_inventory_logs', JSON.stringify(cloudLogs));
+        } catch (e) {
+            console.error("Failed to save local logs cache: ", e);
+        }
+    };
+
+    const saveLocalCustomCache = () => {
+        try {
+            localStorage.setItem('cached_custom_items', JSON.stringify(customItems));
+        } catch (e) {
+            console.error("Failed to save local custom items cache: ", e);
+        }
+    };
+
+    // --- 3. 啟動 Firebase 認證 ---
+    const initAuthentication = async () => {
+        if (!auth) {
+            updateSyncStatus('offline');
+            return;
+        }
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        } catch (err) {
+            console.warn("Firestore auth missing, using fallback mode: ", err);
+            updateSyncStatus('offline');
+        }
+    };
+
+    // --- 4. 客製化彈出確認視窗 ---
+    const showCustomConfirm = (title, message, confirmText = "確定", cancelText = "取消") => {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('custom-confirm-modal');
+            document.getElementById('confirm-title').innerHTML = `<i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 inline-block mr-2"></i> ${title}`;
+            document.getElementById('confirm-message').innerText = message;
+            document.getElementById('confirm-btn-ok').innerText = confirmText;
+            document.getElementById('confirm-btn-cancel').innerText = cancelText;
+
+            const handleConfirm = () => { cleanup(); resolve(true); };
+            const handleCancel = () => { cleanup(); resolve(false); };
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                document.getElementById('confirm-btn-ok').removeEventListener('click', handleConfirm);
+                document.getElementById('confirm-btn-cancel').removeEventListener('click', handleCancel);
+            };
+
+            document.getElementById('confirm-btn-ok').addEventListener('click', handleConfirm);
+            document.getElementById('confirm-btn-cancel').addEventListener('click', handleCancel);
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        });
+    };
+
+    // --- 5. 輕量 Toast 提示 ---
+    const addToast = (message, type = 'success') => {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `p-4 rounded-xl shadow-2xl flex items-center gap-3 border animate-fadeIn pointer-events-auto transition-all duration-300 ${type === 'success' ? 'bg-emerald-950/95 border-emerald-500 text-emerald-200' :
+            type === 'error' ? 'bg-rose-950/95 border-rose-500 text-rose-200' :
+                'bg-blue-950/95 border-blue-500 text-blue-200'
+            }`;
+
+        let iconName = 'check-circle';
+        if (type === 'error') iconName = 'alert-triangle';
+        else if (type === 'info') iconName = 'info';
+
+        toast.innerHTML = `
+            <i data-lucide="${iconName}" class="w-5 h-5 flex-shrink-0"></i>
+            <span class="text-sm font-medium">${message}</span>
+        `;
+        container.appendChild(toast);
+        lucide.createIcons();
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 400);
+        }, 4000);
+    };
+
+    // --- 6. 介面渲染與自訂排序核心 ---
+    const allItemsList = () => {
+        const baseList = [...PRESET_ITEMS, ...customItems];
+        
+        // 自動修復全域排序 ID 庫 (補上新商品、刪除無用商品)
+        let orderChanged = false;
+        baseList.forEach(item => {
+            if (!globalItemOrder.includes(item.id)) {
+                globalItemOrder.push(item.id);
+                orderChanged = true;
+            }
+        });
+
+        const currentIds = baseList.map(i => i.id);
+        const filteredOrder = globalItemOrder.filter(id => currentIds.includes(id));
+        if (filteredOrder.length !== globalItemOrder.length) {
+            globalItemOrder = filteredOrder;
+            orderChanged = true;
+        }
+
+        if (orderChanged) {
+            localStorage.setItem('inventory_item_order', JSON.stringify(globalItemOrder));
+        }
+
+        // 依據全域排序陣列的位置，來為 baseList 進行排序
+        return baseList.sort((a, b) => {
+            const idxA = globalItemOrder.indexOf(a.id);
+            const idxB = globalItemOrder.indexOf(b.id);
+            const posA = idxA === -1 ? 999999 : idxA;
+            const posB = idxB === -1 ? 999999 : idxB;
+            return posA - posB;
+        });
+    };
+
+    // 智慧型更新排序函式 (在分頁篩選、搜尋等狀態下拖曳依然能取得正確對齊順序)
+    const updateGlobalOrder = (newVisibleOrder) => {
+        const remaining = globalItemOrder.filter(id => !newVisibleOrder.includes(id));
+        let insertIndex = globalItemOrder.findIndex(id => newVisibleOrder.includes(id));
+        if (insertIndex === -1) insertIndex = 0;
+
+        globalItemOrder = [
+            ...remaining.slice(0, insertIndex),
+            ...newVisibleOrder,
+            ...remaining.slice(insertIndex)
+        ];
+        localStorage.setItem('inventory_item_order', JSON.stringify(globalItemOrder));
+        addToast("💾 盤點項目排列順序已自動記憶儲存！", "info");
+    };
+
+    // 初始化/重設 Sortable 綁定
+    const initSortable = () => {
+        const container = document.getElementById('items-list-container');
+        if (!container) return;
+
+        // 如果已有排序實體，先將其銷毀重製
+        if (sortableInstance) {
+            sortableInstance.destroy();
+            sortableInstance = null;
+        }
+
+        // 綁定 Sortable 拖曳核心
+        sortableInstance = new Sortable(container, {
+            handle: '.drag-handle', // 僅有點按 grip 拖曳手把才能拖動 (保障滾動體驗)
+            animation: 200, // 滑動平滑動畫毫秒數
+            ghostClass: 'bg-slate-800/80', // 拖曳中底層半透明背景
+            dragClass: 'opacity-50', // 當前拉著走的元件樣式
+            dataIdAttr: 'data-id',
+            fallbackTolerance: 3, // 防手機端點擊與滑動誤觸，留有 3px 容差值
+            onEnd: function (evt) {
+                const newVisibleOrder = sortableInstance.toArray();
+                updateGlobalOrder(newVisibleOrder);
+            }
+        });
+    };
+
+    const getActiveCategories = () => {
+        const base = ['全部', '貼紙', '碳帶', '背心袋', 'OPP', 'PE', '文具類'];
+        const extra = [];
+        customItems.forEach(item => {
+            if (item.category && !base.includes(item.category) && item.category !== '其他') {
+                if (!extra.includes(item.category)) extra.push(item.category);
+            }
+        });
+        return [...base, ...extra, '其他'];
+    };
+
+    const renderCategoryTabs = () => {
+        const container = document.getElementById('category-tabs');
+        if (!container) return;
+        const cats = getActiveCategories();
+        container.innerHTML = cats.map(cat => `
+            <button class="category-tab px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${selectedCategory === cat
+                ? 'bg-emerald-500 border-emerald-500 text-slate-950 shadow-md font-bold'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }" data-category="${cat}">
+                ${cat}
+            </button>
+        `).join('');
+
+        document.querySelectorAll('.category-tab').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                selectedCategory = e.currentTarget.getAttribute('data-category');
+                renderCategoryTabs();
+                renderItemList();
+            });
+        });
+    };
+
+    const renderItemList = () => {
+        const container = document.getElementById('items-list-container');
+        if (!container) return;
+        const items = allItemsList();
+
+        const filtered = items.filter(item => {
+            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.code.includes(searchQuery);
+            const matchesCategory = selectedCategory === '全部' || item.category === selectedCategory;
+            return matchesSearch && matchesCategory;
+        });
+
+        document.getElementById('filtered-items-count').innerText = filtered.length;
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12 bg-slate-900/20 border border-dashed border-slate-800 rounded-2xl animate-fadeIn">
+                    <i data-lucide="search" class="w-8 h-8 text-slate-700 mx-auto mb-2"></i>
+                    <p class="text-slate-400 text-sm">找不到符合搜尋或分類的品項</p>
+                    <button id="btn-reset-search" class="mt-3 text-xs text-emerald-400 hover:underline">重設搜尋條件</button>
+                </div>
+            `;
+            document.getElementById('btn-reset-search')?.addEventListener('click', () => {
+                searchQuery = '';
+                selectedCategory = '全部';
+                document.getElementById('search-input').value = '';
+                renderCategoryTabs();
+                renderItemList();
+            });
+            lucide.createIcons();
+            return;
+        }
+
+        container.innerHTML = filtered.map(item => {
+            const qty = localCounts[item.id] || 0;
+            return `
+                <div class="p-3.5 sm:p-4 rounded-xl border transition-all animate-fadeIn flex gap-3 items-start ${qty > 0
+                    ? 'bg-slate-900/90 border-emerald-500 shadow-md'
+                    : 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/60'
+                }" data-id="${item.id}">
+                    <!-- 拖曳控制把手 (滑鼠滑動、手指重壓拖拉皆完美適配) -->
+                    <div class="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 py-1 flex-shrink-0 drag-handle self-stretch flex items-center justify-center px-1" title="按住拖曳排序">
+                        <i data-lucide="grip-vertical" class="w-4.5 h-4.5"></i>
+                    </div>
+
+                    <!-- 主要內容區 -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start gap-4 mb-3">
+                            <div class="space-y-1.5 min-w-0 flex-1">
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-400">${item.code}</span>
+                                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/15">${item.category}</span>
+                                    ${item.isCustom ? `
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1">
+                                            <i data-lucide="tag" class="w-2.5 h-2.5"></i>自訂
+                                        </span>
+                                    ` : ''}
+                                </div>
+                                <h4 class="text-sm font-semibold text-slate-100 leading-snug flex items-center gap-2">
+                                    ${item.name}
+                                    ${item.isCustom ? `
+                                        <button class="btn-delete-custom text-slate-500 hover:text-rose-400 p-0.5 rounded transition-all" data-id="${item.id}" data-name="${item.name}">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                        </button>
+                                    ` : ''}
+                                </h4>
+                            </div>
+                            <div class="text-right flex-shrink-0">
+                                <span class="text-2xl font-extrabold text-emerald-400 count-display" id="display-${item.id}">${qty}</span>
+                                <span class="text-xs text-slate-500 ml-1 font-medium">${item.unit}</span>
+                            </div>
+                        </div>
+
+                        <!-- 快速微調與單筆提交 -->
+                        <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between pt-2 border-t border-slate-800/60">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <button class="btn-modify w-9 h-9 bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-300 rounded-lg flex items-center justify-center transition-all" data-id="${item.id}" data-val="-1">
+                                    <i data-lucide="minus" class="w-4 h-4"></i>
+                                </button>
+                                <!-- 💡 一鍵歸零按鈕 -->
+                                <button class="btn-modify px-3.5 h-9 bg-rose-950/40 border border-rose-900/50 hover:bg-rose-900 text-rose-400 rounded-lg text-xs font-bold transition-all" data-id="${item.id}" data-val="zero">0</button>
+                                
+                                <button class="btn-modify px-3.5 h-9 bg-slate-950 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-emerald-400 rounded-lg text-xs font-bold transition-all" data-id="${item.id}" data-val="1">+1</button>
+                                <button class="btn-modify px-3.5 h-9 bg-slate-950 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-emerald-400 rounded-lg text-xs font-bold transition-all" data-id="${item.id}" data-val="5">+5</button>
+                                <button class="btn-modify px-3.5 h-9 bg-slate-950 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-emerald-400 rounded-lg text-xs font-bold transition-all" data-id="${item.id}" data-val="10">+10</button>
+                            </div>
+
+                            <button class="btn-submit-single h-9 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${qty > 0
+                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg cursor-pointer'
+                                : 'bg-slate-950 border border-slate-800 text-slate-500 cursor-not-allowed'
+                            }" data-id="${item.id}" ${qty > 0 ? '' : 'disabled'}>
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                                <span>送出並歸零</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        lucide.createIcons();
+        bindItemEvents();
+        initSortable(); // 每次渲染後初始化/修復拖曳排序功能
+    };
+
+    const bindItemEvents = () => {
+        document.querySelectorAll('.btn-modify').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.currentTarget.getAttribute('data-id');
+                const valAttr = e.currentTarget.getAttribute('data-val');
+                
+                // 💡 判斷是否點擊了歸零按鈕
+                if (valAttr === 'zero') {
+                    localCounts[id] = 0;
+                } else {
+                    const val = parseFloat(valAttr);
+                    localCounts[id] = Math.max(0, (localCounts[id] || 0) + val);
+                }
+                
+                renderItemList();
+            });
+        });
+
+        document.querySelectorAll('.btn-submit-single').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.getAttribute('data-id');
+                const item = allItemsList().find(i => i.id === id);
+                if (item) {
+                    await handlePostSingle(item, localCounts[id]);
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-delete-custom').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const docId = btn.getAttribute('data-id');
+                const name = btn.getAttribute('data-name');
+
+                const ok = await showCustomConfirm("刪除品項", `確定要刪除自訂商品品項「${name}」嗎？所有協同手機將同步無法選取此品項！`);
+                if (ok) {
+                    // 樂觀更新本地端
+                    customItems = customItems.filter(i => i.id !== docId);
+                    saveLocalCustomCache();
+                    renderCategoryTabs();
+                    renderItemList();
+
+                    if (db && isFirebaseConnected) {
+                        try {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'custom_items', docId));
+                            addToast(`已刪除「${name}」品項並同步雲端`, "info");
+                        } catch (err) {
+                            console.warn("Failed to sync delete to cloud: ", err);
+                        }
+                    }
+                }
+            });
+        });
+    };
+
+    // --- 7. 雲端+本地彙整加總與動態日誌渲染 ---
+    const renderLiveTotals = () => {
+        const container = document.getElementById('totals-container');
+        if (!container) return;
+        const totals = {};
+
+        cloudLogs.forEach(log => {
+            const key = log.itemName;
+            if (!totals[key]) {
+                totals[key] = {
+                    code: log.itemCode || "93050399",
+                    category: log.category || "其他",
+                    count: 0,
+                    unit: log.unit || "個",
+                    lastUpdated: log.timestamp || Date.now(),
+                    contributors: new Set()
+                };
+            }
+            totals[key].count += Number(log.count);
+            if (log.operator) totals[key].contributors.add(log.operator);
+            if (log.timestamp && log.timestamp > totals[key].lastUpdated) {
+                totals[key].lastUpdated = log.timestamp;
+            }
+        });
+
+        const keys = Object.keys(totals);
+        if (keys.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-slate-600 text-xs border border-dashed border-slate-800 rounded-xl">
+                    無任何盤點累計。請嘗試送出點數！
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = keys.map(key => {
+            const t = totals[key];
+            return `
+                <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center gap-3 animate-fadeIn">
+                    <div class="space-y-1">
+                        <span class="px-1.5 py-0.5 bg-slate-800 text-[9px] text-slate-400 rounded">
+                            ${t.code}
+                        </span>
+                        <h5 class="text-xs font-semibold text-slate-200 line-clamp-1">${key}</h5>
+                        <p class="text-[10px] text-slate-500">
+                            參與人員: ${Array.from(t.contributors).join(', ') || "無名"}
+                        </p>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <span class="text-lg font-bold text-emerald-400">${t.count}</span>
+                        <span class="text-[10px] text-slate-400 ml-1">${t.unit}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    };
+
+    const renderDetailedLogs = () => {
+        const container = document.getElementById('logs-container');
+        const statusText = document.getElementById('log-status-text');
+        if (!container) return;
+
+        statusText.innerText = `即時顯示全部 ${cloudLogs.length} 筆提交紀錄`;
+
+        if (cloudLogs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12 text-slate-600 text-xs border border-dashed border-slate-800 rounded-xl">
+                    目前無任何歷史盤點日誌紀錄
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = cloudLogs.map(log => {
+            const dateObj = new Date(log.timestamp || Date.now());
+            const date = isNaN(dateObj.getTime()) ? "00:00:00" : dateObj.toLocaleTimeString('zh-TW', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            return `
+                <div class="p-2.5 bg-slate-900/60 border border-slate-800/60 hover:border-slate-800 rounded-xl text-xs space-y-1.5 transition-all group relative animate-fadeIn">
+                    <div class="flex justify-between items-start gap-2">
+                        <span class="font-bold text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                            ${log.operator || "阿美"}
+                        </span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-[10px] text-slate-500">${date}</span>
+                            <button class="btn-delete-log text-slate-600 hover:text-rose-400 p-0.5 rounded transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100" data-id="${log.id}">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-slate-300 font-medium line-clamp-2">
+                      ${log.itemName}
+                    </div>
+                    <div class="flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t border-slate-800/30">
+                        <span>編碼: ${log.itemCode || "93050399"}</span>
+                        <span class="font-semibold text-slate-200">
+                            數量: <strong class="text-emerald-400 text-xs">${log.count}</strong> ${log.unit || "個"}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        lucide.createIcons();
+
+        // 綁定單條歷史紀錄刪除
+        document.querySelectorAll('.btn-delete-log').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const logId = e.currentTarget.getAttribute('data-id');
+
+                // 樂觀更新本地端
+                cloudLogs = cloudLogs.filter(log => log.id !== logId);
+                saveLocalLogsCache();
+                renderLiveTotals();
+                renderDetailedLogs();
+
+                if (db && isFirebaseConnected) {
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory_logs', logId));
+                        addToast("已成功刪除該筆盤點並更新雲端", "info");
+                    } catch (err) {
+                        console.warn("Failed to delete from cloud, keep local update: ", err);
+                    }
+                }
+            });
+        });
+    };
+
+    // --- 8. 資料上傳 (單筆與多筆) + Optimistic UI 融合與安全穿透機制 ---
+    const triggerGoogleSheetSync = async (payload) => {
+        if (!gasUrl) return;
+        try {
+            // 💡 穿透阻擋核心：使用 URLSearchParams 將其包裝為「標準簡單表單（Simple Form POST）」，
+            // 瀏覽器就能 100% 穿透 CORS OPTIONS 預檢限制，順利投遞數據至 Google Sheets！
+            const formBody = new URLSearchParams();
+            formBody.append('payload', JSON.stringify(payload));
+
+            await fetch(gasUrl, {
+                method: 'POST',
+                mode: 'no-cors', // 繞過跨域安全預檢
+                body: formBody
+            });
+            console.log("已通過免預檢 Form-POST 順利發送數據至 Google Webapp");
+        } catch (error) {
+            console.warn("GAS Webhook Sync Warning: ", error);
+        }
+    };
+
+    const handlePostSingle = async (item, qty) => {
+        if (qty <= 0) {
+            addToast("請輸入大於 0 的盤點數量", "info");
+            return;
+        }
+
+        const localId = "local-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7);
+        const finalOperator = operatorName.trim() || "阿美";
+        const newLog = {
+            id: localId,
+            itemCode: item.code,
+            itemName: item.name,
+            category: item.category,
+            count: qty,
+            unit: item.unit,
+            operator: finalOperator,
+            timestamp: Date.now(),
+            deviceName: window.innerWidth < 768 ? "手機端" : "電腦端"
+        };
+
+        // 🌟 1. 瞬時本地渲染 (樂觀更新，毫秒內呈現！)
+        cloudLogs.unshift(newLog);
+        saveLocalLogsCache();
+        renderLiveTotals();
+        renderDetailedLogs();
+
+        localCounts[item.id] = 0; // 本地點數直接歸零，以利下次使用
+        renderItemList();
+        addToast(`🎉 送出成功！「${item.name}」已寫入 ${qty} ${item.unit}`, "success");
+
+        // 🌟 2. 背景上傳至雲端資料庫與試算表
+        try {
+            if (db && isFirebaseConnected) {
+                const logsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'inventory_logs');
+                await addDoc(logsCollection, { ...newLog, id: undefined }); // 雲端用自產 id
+            }
+            triggerGoogleSheetSync(newLog);
+        } catch (err) {
+            console.warn("Cloud Sync pending (saved locally): ", err);
+        }
+    };
+
+    const handlePostBatch = async () => {
+        const itemsWithQty = allItemsList().filter(item => (localCounts[item.id] || 0) > 0);
+        if (itemsWithQty.length === 0) {
+            addToast("尚未輸入任何項目的盤點數量", "info");
+            return;
+        }
+
+        const timestamp = Date.now();
+        const device = window.innerWidth < 768 ? "手機端" : "電腦端";
+        const finalOperator = operatorName.trim() || "阿美";
+
+        const batchLogs = itemsWithQty.map(item => ({
+            id: "local-batch-" + Math.random().toString(36).substring(2, 7) + "-" + Date.now(),
+            itemCode: item.code,
+            itemName: item.name,
+            category: item.category,
+            count: localCounts[item.id],
+            unit: item.unit,
+            operator: finalOperator,
+            timestamp,
+            deviceName: device
+        }));
+
+        // 🌟 1. 瞬時批次本地更新
+        cloudLogs = [...batchLogs, ...cloudLogs];
+        saveLocalLogsCache();
+        renderLiveTotals();
+        renderDetailedLogs();
+
+        // 歸零所有項目
+        allItemsList().forEach(item => { localCounts[item.id] = 0; });
+        renderItemList();
+        addToast(`🚀 批次送出成功！已寫入 ${batchLogs.length} 筆商品數量`, "success");
+
+        // 🌟 2. 背景上傳雲端與試算表
+        try {
+            if (db && isFirebaseConnected) {
+                const logsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'inventory_logs');
+                await Promise.all(batchLogs.map(log => addDoc(logsCollection, { ...log, id: undefined })));
+            }
+            triggerGoogleSheetSync(batchLogs);
+        } catch (err) {
+            console.warn("Cloud batch upload pending (saved locally):", err);
+        }
+    };
+
+    // --- 9. GAS 程式碼複製機制 ---
+    const copyGasScriptToClipboard = () => {
+        const scriptText = `/* Google Sheets 接收盤點程式碼 
+請至 Google 試算表 ➜ 擴充功能 ➜ Apps Script 貼上此程式碼
+儲存後，按「部署」➜「網頁應用程式」
+並將「誰有權限存取」設定為「任何人(Anyone)」
+*/
+function doPost(e) {
+try {
+var ss = SpreadsheetApp.getActiveSpreadsheet();
+// 優先尋找並寫入名為 "盤點紀錄" 的工作表，若無則使用第一個工作表
+var sheet = ss.getSheetByName("盤點紀錄") || ss.getSheets()[0];
+
+// 如果工作表是全新的，自動建立標頭列
+if (sheet.getLastRow() === 0) {
+  sheet.appendRow(["凌誠編碼", "類別", "品項名稱", "盤點數量", "單位", "盤點人員", "操作來源裝置", "系統寫入時間"]);
+}
+
+// 💡 解析簡單表單中的 'payload' 參數
+var rawData = "";
+if (e && e.parameter && e.parameter.payload) {
+  rawData = e.parameter.payload;
+} else if (e && e.postData && e.postData.contents) {
+  rawData = e.postData.contents;
+}
+
+if (!rawData) {
+  return ContentService.createTextOutput(JSON.stringify({"status":"error", "message": "未收到任何 payload 參數"}))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
+
+var data = JSON.parse(rawData);
+var formattedDate = Utilities.formatDate(new Date(), "GMT+8", "yyyy-MM-dd HH:mm:ss");
+
+if (Array.isArray(data)) {
+  data.forEach(function(row) {
+    sheet.appendRow([
+      row.itemCode || "",
+      row.category || "",
+      row.itemName || "",
+      row.count || 0,
+      row.unit || "",
+      row.operator || "阿美",
+      row.deviceName || "手機",
+      formattedDate
+    ]);
+  });
+} else {
+  sheet.appendRow([
+    data.itemCode || "",
+    data.category || "",
+    data.itemName || "",
+    data.count || 0,
+    data.unit || "",
+    data.operator || "阿美",
+    data.deviceName || "手機",
+    formattedDate
+  ]);
+}
+
+return ContentService.createTextOutput(JSON.stringify({"status":"success"}))
+                     .setMimeType(ContentService.MimeType.JSON);
+} catch(error) {
+return ContentService.createTextOutput(JSON.stringify({"status":"error", "message": error.toString()}))
+.setMimeType(ContentService.MimeType.JSON);
+}
+}
+// 💡 額外支援 GET 模式：方便點對點 debug 偵測連線！
+function doGet(e) {
+if (e && e.parameter && e.parameter.payload) {
+return doPost(e);
+}
+return ContentService.createTextOutput(JSON.stringify({
+"status": "success",
+"message": "恭喜！您已成功部署 Google Sheets 接收網頁，並且運作良好！"
+})).setMimeType(ContentService.MimeType.JSON);
+}`;
+
+        const text_area = document.createElement("textarea");
+        text_area.value = scriptText;
+        document.body.appendChild(text_area);
+        text_area.select();
+        try {
+            document.execCommand('copy');
+            addToast("📋 Google Apps Script (GAS) 腳本已複製！", "success");
+        } catch (err) {
+            addToast("複製失敗，請手動複製", "error");
+        }
+        document.body.removeChild(text_area);
+    };
+
+    // --- 10. 防亂碼 Excel (CSV UTF-8 BOM) 匯出 ---
+    const exportDetailedLogsToCSV = () => {
+        if (cloudLogs.length === 0) {
+            addToast("目前無資料可供匯出", "info");
+            return;
+        }
+        let csvContent = "\uFEFF"; // BOM 防止 Excel 中文亂碼
+        csvContent += "凌誠編碼,類別,品項名稱,盤點數量,單位,盤點人員,操作來源裝置,系統寫入時間\n";
+
+        cloudLogs.forEach(log => {
+            const formattedTime = new Date(log.timestamp).toLocaleString('zh-TW');
+            csvContent += `"${log.itemCode || '93050399'}","${log.category || '其他'}","${log.itemName}",${log.count},"${log.unit || '個'}","${log.operator || '未填'}","${log.deviceName || ''}","${formattedTime}"\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `盤點明細日誌_${new Date().toLocaleDateString('zh-TW')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        addToast("💾 盤點明細日誌導出成功！", "success");
+    };
+
+    const exportSummaryToCSV = () => {
+        const totals = {};
+        cloudLogs.forEach(log => {
+            const key = log.itemName;
+            if (!totals[key]) {
+                totals[key] = {
+                    code: log.itemCode || "93050399",
+                    category: log.category || "其他",
+                    count: 0,
+                    unit: log.unit || "個",
+                    lastUpdated: log.timestamp || Date.now(),
+                    contributors: new Set()
+                };
+            }
+            totals[key].count += Number(log.count);
+            if (log.operator) totals[key].contributors.add(log.operator);
+            if (log.timestamp && log.timestamp > totals[key].lastUpdated) {
+                totals[key].lastUpdated = log.timestamp;
+            }
+        });
+
+        const keys = Object.keys(totals);
+        if (keys.length === 0) {
+            addToast("目前無彙總數據可導出", "info");
+            return;
+        }
+
+        let csvContent = "\uFEFF";
+        csvContent += "凌誠編碼,類別,品項名稱,即時累計加總量,單位,參與盤點人,最後更新時間\n";
+
+        keys.forEach(key => {
+            const item = totals[key];
+            const formattedTime = new Date(item.lastUpdated).toLocaleString('zh-TW');
+            const contributorsStr = Array.from(item.contributors).join('; ');
+            csvContent += `"${item.code}","${item.category}","${key}",${item.count},"${item.unit}","${contributorsStr}","${formattedTime}"\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `線上累計彙總總表_${new Date().toLocaleDateString('zh-TW')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        addToast("💾 線上彙總總表導出成功！", "success");
+    };
+
+    // --- 11. 響應式簡化介面與切換監聽 (手機版 ➜ 簡化，電腦版 ➜ 並排顯示) ---
+    const updateMobileVisibility = () => {
+        const isMobile = window.innerWidth < 1024; // lg breakpoint in Tailwind is 1024px
+        const colLeft = document.getElementById('col-left');
+        const colRight = document.getElementById('col-right');
+        const cardTotals = document.getElementById('card-totals');
+        const cardLogs = document.getElementById('card-logs');
+
+        if (!colLeft || !colRight || !cardTotals || !cardLogs) return;
+
+        if (isMobile) {
+            // 手機端：依當前分頁狀態，只顯示一個大區塊，免去上下長捲動
+            if (activeMobileTab === 'list') {
+                colLeft.classList.remove('hidden');
+                colRight.classList.add('hidden');
+            } else if (activeMobileTab === 'totals') {
+                colLeft.classList.add('hidden');
+                colRight.classList.remove('hidden');
+                cardTotals.classList.remove('hidden');
+                cardLogs.classList.add('hidden');
+            } else if (activeMobileTab === 'logs') {
+                colLeft.classList.add('hidden');
+                colRight.classList.remove('hidden');
+                cardTotals.classList.add('hidden');
+                cardLogs.classList.remove('hidden');
+            }
+        } else {
+            // 電腦端：全部並排展開，呈現主管全局總表與日誌
+            colLeft.classList.remove('hidden');
+            colRight.classList.remove('hidden');
+            cardTotals.classList.remove('hidden');
+            cardLogs.classList.remove('hidden');
+        }
+    };
+
+    const bindMobileTabs = () => {
+        const btnList = document.getElementById('tab-btn-list');
+        const btnTotals = document.getElementById('tab-btn-totals');
+        const btnLogs = document.getElementById('tab-btn-logs');
+
+        if (!btnList || !btnTotals || !btnLogs) return;
+
+        const setTabActive = (tab) => {
+            activeMobileTab = tab;
+
+            // 更新手機分頁按鈕的底線與文字高亮樣式
+            btnList.className = `flex-1 py-3 text-center border-b-2 flex items-center justify-center gap-1 transition-all ${tab === 'list' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400'}`;
+            btnTotals.className = `flex-1 py-3 text-center border-b-2 flex items-center justify-center gap-1 transition-all ${tab === 'totals' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400'}`;
+            btnLogs.className = `flex-1 py-3 text-center border-b-2 flex items-center justify-center gap-1 transition-all ${tab === 'logs' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400'}`;
+
+            updateMobileVisibility();
+            window.scrollTo({ top: 0, behavior: 'smooth' }); // 自動置頂提高體驗
+        };
+
+        btnList.addEventListener('click', () => setTabActive('list'));
+        btnTotals.addEventListener('click', () => setTabActive('totals'));
+        btnLogs.addEventListener('click', () => setTabActive('logs'));
+
+        // 監聽螢幕寬度改變，防止切換裝置模式時版面破裂
+        window.addEventListener('resize', updateMobileVisibility);
+    };
+
+    // --- 12. 事件綁定與監聽 ---
+    const bindGeneralUIEvents = () => {
+        const operatorSelect = document.getElementById('operator-select');
+        const customOperatorInput = document.getElementById('custom-operator-input');
+        const mobileOperatorIndicator = document.getElementById('mobile-operator-indicator');
+        const saveBadge = document.getElementById('save-status-badge');
+
+        operatorSelect.value = presetSelection;
+        if (presetSelection === 'custom') {
+            customOperatorInput.classList.remove('hidden');
+            customOperatorInput.value = operatorName;
+        }
+
+        operatorSelect.addEventListener('change', (e) => {
+            const val = e.target.value;
+            presetSelection = val;
+            if (val !== 'custom') {
+                customOperatorInput.classList.add('hidden');
+                operatorName = val;
+                localStorage.setItem('inventory_operator', val);
+                mobileOperatorIndicator.innerText = val;
+                addToast(`已切換人員為: ${val}`, "info");
+            } else {
+                customOperatorInput.classList.remove('hidden');
+                operatorName = '';
+                customOperatorInput.value = '';
+                customOperatorInput.focus();
+                mobileOperatorIndicator.innerText = '未填寫';
+            }
+        });
+
+        customOperatorInput.addEventListener('input', (e) => {
+            const val = e.target.value.trim();
+            operatorName = val;
+            localStorage.setItem('inventory_operator', val);
+            mobileOperatorIndicator.innerText = val || '未填寫';
+        });
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            searchQuery = e.target.value;
+            renderItemList();
+        });
+
+        document.getElementById('btn-toggle-settings').addEventListener('click', () => {
+            document.getElementById('settings-panel').classList.toggle('hidden');
+        });
+
+        document.getElementById('btn-copy-gas').addEventListener('click', copyGasScriptToClipboard);
+
+        const gasUrlInput = document.getElementById('gas-url-input');
+        gasUrlInput.value = gasUrl;
+        if (gasUrl) {
+            saveBadge.classList.remove('hidden');
+        }
+
+        gasUrlInput.addEventListener('input', (e) => {
+            gasUrl = e.target.value.trim();
+            if (gasUrl) {
+                localStorage.setItem('inventory_gas_url', gasUrl);
+                saveBadge.classList.remove('hidden');
+            } else {
+                localStorage.removeItem('inventory_gas_url');
+                saveBadge.classList.add('hidden');
+            }
+        });
+
+        document.getElementById('btn-clear-gas').addEventListener('click', () => {
+            gasUrl = '';
+            gasUrlInput.value = '';
+            localStorage.removeItem('inventory_gas_url');
+            saveBadge.classList.add('hidden');
+            addToast("已清除 Google 同步網址", "info");
+        });
+
+        // --- 測試連線按鈕點擊事件 ---
+        document.getElementById('btn-test-gas').addEventListener('click', async () => {
+            if (!gasUrl) {
+                addToast("請先輸入您的 Google Apps Script 網頁應用程式 URL", "error");
+                return;
+            }
+            addToast("測試連線發送中，請查看試算表...", "info");
+            const testPayload = {
+                itemCode: "TEST-999",
+                itemName: "💡 測試連線商品 (若看到此列表示連線成功！)",
+                category: "其他",
+                count: 1,
+                unit: "次",
+                operator: "測試員-" + (operatorName || "阿美"),
+                timestamp: Date.now(),
+                deviceName: "連線測試端"
+            };
+            await triggerGoogleSheetSync(testPayload);
+            addToast("測試數據已發送！試算表內隨後會出現測試連線紀錄。", "success");
+        });
+
+        document.getElementById('btn-submit-batch').addEventListener('click', handlePostBatch);
+        document.getElementById('btn-mobile-submit').addEventListener('click', handlePostBatch);
+
+        document.getElementById('btn-clear-all').addEventListener('click', async () => {
+            const ok = await showCustomConfirm("警告：刪除歷史明細", "確定要清空所有的盤點歷史紀錄與累計數據嗎？此操作將同時清空現場所有協同手機端的顯示資料！");
+            if (ok) {
+                cloudLogs = [];
+                saveLocalLogsCache();
+                renderLiveTotals();
+                renderDetailedLogs();
+
+                if (db && isFirebaseConnected) {
+                    try {
+                        addToast("正在同步清空雲端資料，請稍候...", "info");
+                        await Promise.all(cloudLogs.map(log => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory_logs', log.id))));
+                    } catch (err) {
+                        console.warn("Failed to clear cloud, kept local clear: ", err);
+                    }
+                }
+                addToast("💥 盤點歷史紀錄已全部清空！", "success");
+            }
+        });
+
+        document.getElementById('btn-export-summary').addEventListener('click', exportSummaryToCSV);
+        document.getElementById('btn-export-logs').addEventListener('click', exportDetailedLogsToCSV);
+
+        const addModal = document.getElementById('add-item-modal');
+        document.getElementById('btn-open-add-modal').addEventListener('click', () => addModal.classList.remove('hidden'));
+        document.getElementById('btn-close-add-modal').addEventListener('click', () => addModal.classList.add('hidden'));
+        document.getElementById('btn-cancel-add').addEventListener('click', () => addModal.classList.add('hidden'));
+
+        const itemCategorySelect = document.getElementById('new-item-category');
+        const customCategoryGroup = document.getElementById('custom-category-group');
+        itemCategorySelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom_cat') {
+                customCategoryGroup.classList.remove('hidden');
+            } else {
+                customCategoryGroup.classList.add('hidden');
+            }
+        });
+
+        document.getElementById('add-item-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('new-item-name').value.trim();
+            const code = document.getElementById('new-item-code').value.trim() || '93050399';
+            const catSelectVal = itemCategorySelect.value;
+            const unit = document.getElementById('new-item-unit').value.trim() || '個';
+            const customCatInputVal = document.getElementById('new-item-custom-cat').value.trim();
+
+            if (!name) {
+                addToast("請輸入商品名稱", "error");
+                return;
+            }
+
+            const finalCategory = catSelectVal === 'custom_cat' ? (customCatInputVal || '其他') : catSelectVal;
+            const customId = "custom-item-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5);
+
+            const newCustomItem = {
+                id: customId,
+                code,
+                category: finalCategory,
+                name,
+                unit,
+                isCustom: true,
+                creator: operatorName || "阿美",
+                timestamp: Date.now()
+            };
+
+            // 樂觀本端新增
+            customItems.push(newCustomItem);
+            saveLocalCustomCache();
+            renderCategoryTabs();
+            renderItemList();
+
+            document.getElementById('new-item-name').value = '';
+            document.getElementById('new-item-custom-cat').value = '';
+            itemCategorySelect.value = '其他';
+            customCategoryGroup.classList.add('hidden');
+            addModal.classList.add('hidden');
+            addToast(`✅ 自訂品項「${name}」已成功新增！`, "success");
+
+            // 嘗試雲端上傳同步
+            try {
+                if (db && isFirebaseConnected) {
+                    const customCollection = collection(db, 'artifacts', appId, 'public', 'data', 'custom_items');
+                    await addDoc(customCollection, { ...newCustomItem, id: undefined });
+                }
+            } catch (err) {
+                console.warn("Failed to sync new item to cloud: ", err);
+            }
+        });
+    };
+
+    // --- 13. 啟動即時同步 ---
+    const startCloudSynchronization = () => {
+        if (!db || !firebaseUser) {
+            updateSyncStatus('offline');
+            return;
+        }
+
+        updateSyncStatus('connected');
+
+        // 13a. 實時訂閱雲端日誌
+        const logsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'inventory_logs');
+        onSnapshot(
+            logsCollection,
+            (snapshot) => {
+                const logs = [];
+                snapshot.forEach((doc) => {
+                    logs.push({ id: doc.id, ...doc.data() });
+                });
+                // 時間降序排列 (最新排前面)
+                logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                cloudLogs = logs;
+                saveLocalLogsCache(); // 保存到本地快取
+
+                renderLiveTotals();
+                renderDetailedLogs();
+            },
+            (error) => {
+                console.warn("Firestore Log Listen Error: ", error);
+                updateSyncStatus('offline');
+            }
+        );
+
+        // 13b. 實時訂閱自訂品項 (讓多部手機同步看到新建立的商品標籤與自訂排序)
+        const customCollection = collection(db, 'artifacts', appId, 'public', 'data', 'custom_items');
+        onSnapshot(
+            customCollection,
+            (snapshot) => {
+                const items = [];
+                snapshot.forEach((doc) => {
+                    items.push({ id: doc.id, ...doc.data(), isCustom: true });
+                });
+                customItems = items;
+                saveLocalCustomCache(); // 保存到本地快取
+
+                renderCategoryTabs();
+                renderItemList();
+            },
+            (error) => {
+                console.warn("Firestore Custom Items Listen Error: ", error);
+            }
+        );
+    };
+
+    // --- 14. 初始化引導入口 ---
+    window.addEventListener('load', async () => {
+        // A. 第一時間載入本機快取
+        loadLocalCache();
+
+        // B. 進行本地初次界面渲染
+        bindGeneralUIEvents();
+        bindMobileTabs(); // 綁定最新手機分頁切換列
+        renderCategoryTabs();
+        renderItemList();
+        renderLiveTotals();
+        renderDetailedLogs();
+        updateMobileVisibility(); // 初始化雙模畫面顯示與隱藏邏輯
+
+        // C. 註冊 Firebase 安全認證與即時同步
+        if (auth) {
+            onAuthStateChanged(auth, (usr) => {
+                firebaseUser = usr;
+                if (usr) {
+                    startCloudSynchronization();
+                } else {
+                    updateSyncStatus('offline');
+                }
+            });
+            await initAuthentication();
+        } else {
+            updateSyncStatus('offline');
+        }
+    });
+</script>
+</body>
+</html>
